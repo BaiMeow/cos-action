@@ -24,7 +24,7 @@ const uploadFileToCOS = (cos, path) => {
             Key: Path.join(cos.remotePath, path),
             StorageClass: 'STANDARD',
             Body: fs.createReadStream(Path.join(cos.localPath, path)),
-        }, function(err, data) {
+        }, function (err, data) {
             if (err) {
                 return reject(err);
             } else {
@@ -40,7 +40,7 @@ const deleteFileFromCOS = (cos, path) => {
             Bucket: cos.bucket,
             Region: cos.region,
             Key: Path.join(cos.remotePath, path)
-        }, function(err, data) {
+        }, function (err, data) {
             if (err) {
                 return reject(err);
             } else {
@@ -57,7 +57,7 @@ const listFilesOnCOS = (cos, nextMarker) => {
             Region: cos.region,
             Prefix: cos.remotePath,
             NextMarker: nextMarker
-        }, function(err, data) {
+        }, function (err, data) {
             if (err) {
                 return reject(err);
             } else {
@@ -70,7 +70,7 @@ const listFilesOnCOS = (cos, nextMarker) => {
 const collectLocalFiles = async (cos) => {
     const root = cos.localPath;
     const files = new Set();
-    await walk(root, (path) => files.add(Path.relative(root,path)));
+    await walk(root, (path) => files.add(Path.relative(root, path)));
     return files;
 }
 
@@ -78,12 +78,11 @@ const uploadFiles = async (cos, localFiles) => {
     const size = localFiles.size;
     let index = 0;
     let percent = 0;
-    for (const file of localFiles) {
-        await uploadFileToCOS(cos, file);
+    await Promise.all(localFiles.map((f => uploadFileToCOS(cos, f).then(() => {
         index++;
         percent = parseInt(index / size * 100);
         console.log(`>> [${index}/${size}, ${percent}%] uploaded ${Path.join(cos.localPath, file)}`);
-    }
+    }))))
 }
 
 const collectRemoteFiles = async (cos) => {
@@ -95,7 +94,7 @@ const collectRemoteFiles = async (cos) => {
         data = await listFilesOnCOS(cos, nextMarker);
         for (const e of data.Contents) {
             let p = e.Key.substring(cos.remotePath.length);
-            for (;p[0] === '/';) {
+            for (; p[0] === '/';) {
                 p = p.substring(1);
             }
             files.add(p);
