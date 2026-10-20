@@ -36,6 +36,10 @@ Github Action to upload to Tencent Cloud COS
 
 **Optional** Set to true for using accelerate domain to upload files. Default is false.
 
+### `concurrency`
+
+**Optional** Maximum number of files transferred in parallel. Default is 10.
+
 ## Example usage
 
 ```

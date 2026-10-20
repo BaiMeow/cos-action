@@ -4,6 +4,42 @@ const COS = require('cos-nodejs-sdk-v5');
 const fs = require('fs');
 const Path = require('path');
 
+const DEFAULT_CONCURRENCY = 10;
+
+// Run `worker` for every item, keeping at most `concurrency` tasks in flight.
+const runWithConcurrency = async (items, concurrency, worker) => {
+    const list = Array.from(items);
+    const total = list.length;
+    const limit = Math.max(1, Math.min(concurrency, total));
+    let next = 0;
+    let stopped = false;
+    let firstError;
+
+    const run = async () => {
+        while (!stopped) {
+            const index = next++;
+            if (index >= total) {
+                return;
+            }
+            try {
+                await worker(list[index], index);
+            } catch (error) {
+                if (!stopped) {
+                    stopped = true;
+                    firstError = error;
+                }
+                return;
+            }
+        }
+    };
+
+    await Promise.all(Array.from({ length: limit }, run));
+
+    if (stopped) {
+        throw firstError;
+    }
+}
+
 const walk = async (path, walkFn) => {
     stats = await fs.promises.lstat(path);
     if (!stats.isDirectory()) {
@@ -77,13 +113,12 @@ const collectLocalFiles = async (cos) => {
 const uploadFiles = async (cos, localFiles) => {
     const size = localFiles.size;
     let index = 0;
-    let percent = 0;
-    for (const file of localFiles) {
+    await runWithConcurrency(localFiles, cos.concurrency, async (file) => {
         await uploadFileToCOS(cos, file);
         index++;
-        percent = parseInt(index / size * 100);
+        const percent = parseInt(index / size * 100);
         console.log(`>> [${index}/${size}, ${percent}%] uploaded ${Path.join(cos.localPath, file)}`);
-    }
+    });
 }
 
 const collectRemoteFiles = async (cos) => {
@@ -120,13 +155,12 @@ const findDeletedFiles = (localFiles, remoteFiles) => {
 const cleanDeleteFiles = async (cos, deleteFiles) => {
     const size = deleteFiles.size;
     let index = 0;
-    let percent = 0;
-    for (const file of deleteFiles) {
+    await runWithConcurrency(deleteFiles, cos.concurrency, async (file) => {
         await deleteFileFromCOS(cos, file);
         index++;
-        percent = parseInt(index / size * 100);
+        const percent = parseInt(index / size * 100);
         console.log(`>> [${index}/${size}, ${percent}%] cleaned ${Path.join(cos.remotePath, file)}`);
-    }
+    });
 }
 
 const process = async (cos) => {
@@ -151,6 +185,7 @@ const process = async (cos) => {
 }
 
 try {
+    const concurrency = parseInt(core.getInput('concurrency'), 10);
     const cos = {
         cli: new COS({
             SecretId: core.getInput('secret_id'),
@@ -161,7 +196,8 @@ try {
         region: core.getInput('cos_region'),
         localPath: core.getInput('local_path'),
         remotePath: core.getInput('remote_path'),
-        clean: core.getInput('clean') === 'true'
+        clean: core.getInput('clean') === 'true',
+        concurrency: Number.isInteger(concurrency) && concurrency > 0 ? concurrency : DEFAULT_CONCURRENCY
     };
 
     process(cos).catch((reason) => {
